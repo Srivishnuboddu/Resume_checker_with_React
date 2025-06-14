@@ -1,5 +1,13 @@
 import React, { useState } from "react";
 import "./App.css";
+import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
+import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
+GlobalWorkerOptions.workerSrc = new URL("./pdf.worker.js", import.meta.url);
+
+import skillData from "./data/skills.json";
+import jsPDF from "jspdf";
+import { GlobalWorkerOptions } from "pdfjs-dist/build/pdf";
+
 
 function App() {
   const [showModal, setShowModal] = useState(false);
@@ -7,7 +15,10 @@ function App() {
   const [analyzedText, setAnalyzedText] = useState("");
 
   const handleAnalyze = () => {
-    if (resumeText.trim() === "") return;
+    if (resumeText.trim() === "") {
+      alert("Please enter or upload your resume first.");
+      return;
+    }
 
     const lowerText = resumeText.toLowerCase();
 
@@ -25,36 +36,81 @@ function App() {
       "github",
     ];
 
-    const matchScore = resumeIndicators.filter((word) =>
+    // Check resume structure
+    const structureMatches = resumeIndicators.filter((word) =>
       lowerText.includes(word)
-    ).length;
+    );
 
-    if (matchScore < 3) {
+    // Match from skills.json
+    const allSkills = Object.values(skillData).flat();
+    const skillMatches = allSkills.filter((skill) =>
+      lowerText.includes(skill.toLowerCase())
+    );
+
+    // Final analysis
+    if (structureMatches.length < 3 && skillMatches.length < 3) {
       setAnalyzedText(
         "❌ This content doesn't appear to be a valid resume. Please paste a proper resume."
       );
     } else {
-      setAnalyzedText(
-        `✅ Analysis Complete:\n\n• Add a GitHub/Portfolio link if not present.\n• Highlight key technical projects.\n• Use strong action verbs like “Developed”, “Led”, “Created”.\n• Make sure your resume matches keywords in job descriptions.\n\n🎯 Matched resume elements: ${matchScore}/10`
-      );
+      const tips = [
+        "• Add a GitHub or portfolio link if not present.",
+        "• Highlight key technical projects with outcomes.",
+        "• Use strong action verbs like “Developed”, “Led”, “Created”.",
+        "• Tailor your resume to match job description keywords.",
+      ];
+
+      const feedback = `✅ Analysis Complete:
+
+🎯 Resume Sections Detected: ${structureMatches.length}/10
+🧠 Skill Keywords Found: ${skillMatches.length}
+
+📝 Tips to Improve Your Resume:
+${tips.join("\n")}
+
+✨ Skills matched: ${skillMatches.slice(0, 10).join(", ") || "None"}
+`;
+
+      setAnalyzedText(feedback);
     }
   };
-  
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (file && file.type === "application/pdf") {
       const reader = new FileReader();
-      reader.onload = () => {
-        setResumeText(
-          "📄 PDF content preview:\n\n" + reader.result.slice(0, 1000)
-        );
+      reader.onload = async () => {
+        const typedarray = new Uint8Array(reader.result);
+
+        const pdf = await getDocument({ data: typedarray }).promise;
+        let text = "";
+
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          const pageText = content.items.map((item) => item.str).join(" ");
+          text += pageText + "\n";
+        }
+
+        setResumeText(text);
         setAnalyzedText("");
       };
-      reader.readAsText(file);
+      reader.readAsArrayBuffer(file);
     } else {
       alert("Please upload a valid PDF file.");
     }
+  };
+
+  const handleDownloadPDF = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(12);
+    doc.text("JobMate Resume Analysis Report", 15, 20);
+    doc.setFontSize(10);
+
+    const splitText = doc.splitTextToSize(analyzedText, 180);
+    doc.text(splitText, 15, 30);
+
+    doc.save("JobMate_Resume_Analysis.pdf");
   };
 
   return (
@@ -125,7 +181,12 @@ function App() {
                 Close
               </button>
               {analyzedText && (
-                <pre className="analysis-output">{analyzedText}</pre>
+                <>
+                  <pre className="analysis-output">{analyzedText}</pre>
+                  <button className="pdf-btn" onClick={handleDownloadPDF}>
+                    Download PDF Report 📥
+                  </button>
+                </>
               )}
             </div>
           </div>
